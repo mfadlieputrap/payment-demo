@@ -1,0 +1,134 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+  // URL koneksi sekarang diatur di prisma.config.ts, bukan di sini
+}
+
+// ─── Enums ────────────────────────────────────────────
+
+enum OrderStatus {
+  PENDING_PAYMENT
+  PAID
+  EXPIRED
+  CANCELLED
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCESS
+  FAILED
+  EXPIRED
+}
+
+enum PaymentMethod {
+  QRIS
+  BCA_VA
+}
+
+enum PaymentProvider {
+  MIDTRANS
+}
+
+// ─── Products ─────────────────────────────────────────
+
+model Product {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String   @db.VarChar(150)
+  description String?
+  imageUrl    String?  @map("image_url")
+  price       BigInt // rupiah, integer only
+  stock       Int
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  orderItems OrderItem[]
+
+  @@map("products")
+}
+
+// ─── Orders ───────────────────────────────────────────
+
+model Order {
+  id            String      @id @default(uuid()) @db.Uuid
+  orderNumber   String      @unique @map("order_number") @db.VarChar(30) // public ID, e.g. ORD-20261027-A1B2
+  customerName  String      @map("customer_name") @db.VarChar(100)
+  customerEmail String      @map("customer_email") @db.VarChar(150)
+  customerPhone String      @map("customer_phone") @db.VarChar(20)
+  status        OrderStatus @default(PENDING_PAYMENT)
+  totalAmount   BigInt      @map("total_amount")
+  expiresAt     DateTime    @map("expires_at")
+  paidAt        DateTime?   @map("paid_at")
+  createdAt     DateTime    @default(now()) @map("created_at")
+  updatedAt     DateTime    @updatedAt @map("updated_at")
+
+  items    OrderItem[]
+  payments Payment[]
+
+  @@index([status, expiresAt]) // expiry job: WHERE status = PENDING_PAYMENT AND expires_at < now()
+  @@map("orders")
+}
+
+model OrderItem {
+  id          String @id @default(uuid()) @db.Uuid
+  orderId     String @map("order_id") @db.Uuid
+  productId   String @map("product_id") @db.Uuid
+  productName String @map("product_name") @db.VarChar(150) // snapshot
+  unitPrice   BigInt @map("unit_price") // snapshot
+  quantity    Int
+  subtotal    BigInt
+
+  order   Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@index([orderId])
+  @@map("order_items")
+}
+
+// ─── Payments ─────────────────────────────────────────
+
+model Payment {
+  id              String          @id @default(uuid()) @db.Uuid
+  orderId         String          @map("order_id") @db.Uuid
+  provider        PaymentProvider @default(MIDTRANS)
+  method          PaymentMethod
+  providerOrderId String          @unique @map("provider_order_id") @db.VarChar(50) // sent to Midtrans as order_id, e.g. ORD-20261027-A1B2-P1
+  providerRef     String?         @unique @map("provider_ref") @db.VarChar(100) // Midtrans transaction_id
+  amount          BigInt
+  status          PaymentStatus   @default(PENDING)
+  qrString        String?         @map("qr_string")
+  vaNumber        String?         @map("va_number") @db.VarChar(50)
+  expiresAt       DateTime?       @map("expires_at")
+  paidAt          DateTime?       @map("paid_at")
+  rawResponse     Json?           @map("raw_response")
+  createdAt       DateTime        @default(now()) @map("created_at")
+  updatedAt       DateTime        @updatedAt @map("updated_at")
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Restrict)
+
+  @@index([orderId])
+  @@map("payments")
+}
+
+// ─── Webhooks ─────────────────────────────────────────
+
+// Only webhooks with a VALID signature are stored here.
+model WebhookEvent {
+  id         String          @id @default(uuid()) @db.Uuid
+  provider   PaymentProvider
+  eventKey   String          @unique @map("event_key") @db.VarChar(150) // transaction_id + ":" + transaction_status
+  payload    Json
+  receivedAt DateTime        @default(now()) @map("received_at")
+
+  @@map("webhook_events")
+}
