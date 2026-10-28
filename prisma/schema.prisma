@@ -28,6 +28,7 @@ enum PaymentStatus {
   SUCCESS
   FAILED
   EXPIRED
+  CANCELLED
 }
 
 enum PaymentMethod {
@@ -107,6 +108,7 @@ model Payment {
   amount          BigInt
   status          PaymentStatus   @default(PENDING)
   qrString        String?         @map("qr_string")
+  qrImageUrl      String?         @map("qr_image_url")
   vaNumber        String?         @map("va_number") @db.VarChar(50)
   expiresAt       DateTime?       @map("expires_at")
   paidAt          DateTime?       @map("paid_at")

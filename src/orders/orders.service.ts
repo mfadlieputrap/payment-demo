@@ -97,4 +97,45 @@ export class OrdersService {
       });
     });
   }
+
+  async findByOrderNumber(orderNumber: string) {
+    const order = await this.prisma.order.findUnique({
+      where: { orderNumber },
+      select: {
+        orderNumber: true,
+        status: true,
+        totalAmount: true,
+        expiresAt: true,
+        paidAt: true,
+        items: {
+          select: {
+            productName: true,
+            unitPrice: true,
+            quantity: true,
+            subtotal: true,
+          },
+        },
+        payments: {
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          select: {
+            method: true,
+            status: true,
+            qrString: true,
+            vaNumber: true,
+            expiresAt: true,
+            qrImageUrl: true,
+            amount: true,
+          },
+        },
+      },
+    });
+
+    if (!order) {
+      throw new NotFoundException(`Order ${orderNumber} not found`);
+    }
+
+    const { payments, ...rest } = order;
+    return { ...rest, latestPayment: payments[0] ?? null };
+  }
 }
