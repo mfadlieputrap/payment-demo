@@ -3,28 +3,9 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { Prisma } from '../generated/prisma/client';
 import { MidtransClient } from '../payments/midtrans/midtrans.client';
-import { MidtransTransactionResponse } from '../payments/midtrans/midtrans.types';
 import { isValidMidtransSignature } from './midtrans-signature';
-
-type FinalStatus = 'SUCCESS' | 'EXPIRED' | 'FAILED' | 'CANCELLED';
-
-function mapStatus(res: MidtransTransactionResponse): FinalStatus | null {
-  switch (res.transaction_status) {
-    case 'settlement':
-      return 'SUCCESS';
-    case 'capture':
-      return res.fraud_status === 'accept' ? 'SUCCESS' : null;
-    case 'expire':
-      return 'EXPIRED';
-    case 'cancel':
-      return 'CANCELLED';
-    case 'deny':
-    case 'failure':
-      return 'FAILED';
-    default:
-      return null;
-  }
-}
+import { PaymentSettlementService } from 'src/payments/payment-settlement.service';
+import { mapMidtransStatus } from 'src/payments/midtrans/map-status';
 
 @Injectable()
 export class WebhooksService {
@@ -34,6 +15,7 @@ export class WebhooksService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly midtrans: MidtransClient,
+    private readonly settlement: PaymentSettlementService,
     config: ConfigService,
   ) {
     this.serverKey = config.getOrThrow<string>('MIDTRANS_SERVER_KEY');
@@ -49,17 +31,22 @@ export class WebhooksService {
 
     const providerOrderId = payload.order_id as string;
 
-    const status = await this.midtrans.getStatus(providerOrderId);
-    const newStatus = mapStatus(status);
-    if (!newStatus) {
-      return { received: true };
-    }
-
     const payment = await this.prisma.payment.findUnique({
       where: { providerOrderId },
     });
+
     if (!payment) {
       this.logger.warn(`Webhook for unknown payment ${providerOrderId}`);
+      return { received: true };
+    }
+
+    const status = await this.midtrans.getStatus(providerOrderId);
+    if (!status) {
+      return { received: true };
+    }
+
+    const newStatus = mapMidtransStatus(status);
+    if (!newStatus) {
       return { received: true };
     }
 
@@ -91,21 +78,8 @@ export class WebhooksService {
       }
 
       if (newStatus === 'SUCCESS') {
-        await tx.payment.update({
-          where: { id: payment.id },
-          data: { status: 'SUCCESS', paidAt: new Date() },
-        });
-
-        const { count: orderUpdated } = await tx.order.updateMany({
-          where: { id: payment.orderId, status: 'PENDING_PAYMENT' },
-          data: { status: 'PAID', paidAt: new Date() },
-        });
-
-        if (orderUpdated === 0) {
-          this.logger.error(
-            `LATE PAYMENT: ${providerOrderId} paid but order is no longer pending. Needs manual refund.`,
-          );
-        }
+        const result = await this.settlement.markPaid(tx, payment);
+        this.logger.log(`Webhook settled ${providerOrderId}: ${result}`);
         return;
       }
 

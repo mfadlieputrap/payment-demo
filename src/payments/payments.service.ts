@@ -150,18 +150,18 @@ export class PaymentsService {
     // Cancel ditolak: cek status aslinya sebelum memutuskan
     const status = await this.midtrans.getStatus(payment.providerOrderId);
 
-    if (status.transaction_status === 'expire') {
+    if (status!.transaction_status === 'expire') {
       await this.markStatus(payment.id, 'EXPIRED');
       return;
     }
 
-    if (status.transaction_status === 'cancel') {
+    if (status!.transaction_status === 'cancel') {
       await this.markStatus(payment.id, 'CANCELLED');
       return;
     }
 
     this.logger.warn(
-      `Could not cancel ${payment.providerOrderId}: ${status.transaction_status}`,
+      `Could not cancel ${payment.providerOrderId}: ${status!.transaction_status}`,
     );
     throw new ConflictException(
       'Previous payment could not be cancelled, please try again',

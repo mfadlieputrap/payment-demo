@@ -38,11 +38,17 @@ export class MidtransClient {
     return data;
   }
 
-  async getStatus(orderId: string): Promise<MidtransTransactionResponse> {
+  async getStatus(
+    orderId: string,
+  ): Promise<MidtransTransactionResponse | null> {
     const data = await this.request(
       'GET',
       `/v2/${encodeURIComponent(orderId)}/status`,
     );
+
+    if (data.status_code === '404') {
+      return null;
+    }
 
     if (!data.transaction_status) {
       throw new BadGatewayException('Could not get transaction status');
