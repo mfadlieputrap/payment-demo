@@ -7,6 +7,7 @@ generator client {
   provider     = "prisma-client"
   output       = "../src/generated/prisma"
   moduleFormat = "cjs"
+  importFileExtension = ""
 }
 
 datasource db {
@@ -14,6 +15,7 @@ datasource db {
   // URL koneksi sekarang diatur di prisma.config.ts, bukan di sini
 }
 
+// 
 // ─── Enums ────────────────────────────────────────────
 
 enum OrderStatus {
